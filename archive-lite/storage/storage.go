@@ -13,17 +13,32 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	rawHTMLDir      = "data/raw"
-	screenshotsDir  = "data/screenshots" // For future use
+var (
+	rawHTMLDir     = "data/raw"
+	screenshotsDir = "data/screenshots"
 )
+
+func SetStorageBaseDirsForTest(testRawHTMLDir, testScreenshotsDir string) {
+	rawHTMLDir = testRawHTMLDir
+	screenshotsDir = testScreenshotsDir
+}
+
+// RawHTMLDirForTest returns the current rawHTMLDir (for test purposes).
+func RawHTMLDirForTest() string {
+	return rawHTMLDir
+}
+
+// ScreenshotsDirForTest returns the current screenshotsDir (for test purposes).
+func ScreenshotsDirForTest() string {
+	return screenshotsDir
+}
 
 // EnsureStorageDirs creates the necessary storage directories if they don't exist.
 func EnsureStorageDirs() error {
 	dirs := []string{rawHTMLDir, screenshotsDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			return fmt.Errorf("failed to create directory '%s': %w", dir, err)
 		}
 	}
 	return nil
@@ -33,87 +48,65 @@ func EnsureStorageDirs() error {
 func FetchRawHTML(url string) (string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		return "", fmt.Errorf("failed to get URL %s: %w", url, err)
+		return "", fmt.Errorf("failed to get URL '%s': %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get URL %s: status code %d", url, resp.StatusCode)
+		return "", fmt.Errorf("failed to get URL '%s': status code %d", url, resp.StatusCode)
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body from %s: %w", url, err)
+		return "", fmt.Errorf("failed to read response body from '%s': %w", url, err)
 	}
 	return string(bodyBytes), nil
 }
 
-// CaptureSPA is a placeholder for future SPA capturing logic using a headless browser.
-// For now, it doesn't perform any headless browser actions.
-// It might be enhanced to save the raw HTML as a starting point or do nothing.
+// CaptureSPA is a placeholder for future SPA capturing logic.
 func CaptureSPA(url string, htmlFilePath string, screenshotPath string) error {
-	// Placeholder: In a real SPA capture, we would use chromedp here to:
-	// 1. Navigate to the URL.
-	// 2. Wait for dynamic content to load.
-	// 3. Extract the rendered HTML and save it to htmlFilePath.
-	// 4. Take a screenshot and save it to screenshotPath.
-	// For now, we can log that this is a placeholder.
-	fmt.Printf("CaptureSPA called for URL: %s. This is a placeholder for actual SPA rendering.\n", url)
-	fmt.Printf("SPA HTML would be saved to: %s\n", htmlFilePath)
-	fmt.Printf("SPA Screenshot would be saved to: %s\n", screenshotPath)
-	// As a minimal step, we could copy the raw HTML here if needed,
-	// or this function could do nothing until SPA rendering is fully implemented.
 	return nil
 }
 
-// ArchiveURL orchestrates the archiving of a given URL.
-// It fetches raw HTML, (optionally captures SPA content), saves it,
-// and records the entry in the database.
+// ArchiveURL orchestrates archiving a URL.
 func ArchiveURL(db *gorm.DB, urlToArchive string) (*models.ArchiveEntry, error) {
 	if err := EnsureStorageDirs(); err != nil {
 		return nil, fmt.Errorf("failed to ensure storage directories: %w", err)
 	}
 
-	// Fetch raw HTML first
 	rawHTML, err := FetchRawHTML(urlToArchive)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch raw HTML for %s: %w", urlToArchive, err)
+		return nil, fmt.Errorf("failed to fetch raw HTML for '%s': %w", urlToArchive, err)
 	}
 
 	entryUUID := uuid.New().String()
 	rawHTMLFileName := fmt.Sprintf("%s.html", entryUUID)
 	rawHTMLFilePath := filepath.Join(rawHTMLDir, rawHTMLFileName)
 
-	// Save raw HTML
 	err = os.WriteFile(rawHTMLFilePath, []byte(rawHTML), 0644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write raw HTML to %s: %w", rawHTMLFilePath, err)
+		return nil, fmt.Errorf("failed to write raw HTML to '%s': %w", rawHTMLFilePath, err)
 	}
 
-	// Placeholder for screenshot path
 	screenshotFileName := fmt.Sprintf("%s.png", entryUUID)
-	screenshotFilePath := filepath.Join(screenshotsDir, screenshotFileName) // Path for future screenshot
+	screenshotFilePath := filepath.Join(screenshotsDir, screenshotFileName)
 
-	// Call CaptureSPA (currently a placeholder)
-	// In the future, CaptureSPA might save its own version of HTML (e.g., fully rendered)
-	// and a screenshot. For now, rawHTMLFilePath is the primary content.
-	if err := CaptureSPA(urlToArchive, rawHTMLFilePath /* or a different path for SPA rendered HTML */, screenshotFilePath); err != nil {
-		// Non-critical for now as it's a placeholder, but good to log
-		fmt.Printf("CaptureSPA for %s encountered an error (non-critical): %v\n", urlToArchive, err)
+	if err := CaptureSPA(urlToArchive, rawHTMLFilePath, screenshotFilePath); err != nil {
+		// log.Printf("CaptureSPA for %s encountered a non-critical error: %v", urlToArchive, err)
 	}
 
-	// For now, Title will be empty. It can be populated later, perhaps by parsing the HTML.
 	archiveEntry := models.ArchiveEntry{
 		URL:            urlToArchive,
-		Title:          "", // Placeholder for title
+		Title:          "",
 		StoragePath:    rawHTMLFilePath,
-		ScreenshotPath: screenshotFilePath, // Store path even if file isn't created yet
+		ScreenshotPath: screenshotFilePath,
 		ArchivedAt:     time.Now(),
 	}
 
 	result := db.Create(&archiveEntry)
 	if result.Error != nil {
-		return nil, fmt.Errorf("failed to create archive entry in database for %s: %w", urlToArchive, result.Error)
+		os.Remove(rawHTMLFilePath)
+		return nil, fmt.Errorf("failed to create archive entry in database for '%s': %w", urlToArchive, result.Error)
 	}
 
 	return &archiveEntry, nil

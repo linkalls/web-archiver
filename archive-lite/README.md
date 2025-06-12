@@ -133,6 +133,36 @@ All API endpoints are prefixed with `/api/archive`.
 -   However, the actual rendering of SPAs and capturing of screenshots using `chromedp` is **not yet implemented** in the `storage.CaptureSPA()` function. This function currently acts as a placeholder.
 -   Full SPA support is a planned enhancement. When implemented, the `Dockerfile` will also need to be updated to include a headless Chrome/Chromium instance in both the build and runtime stages.
 
+## Running Tests
+
+This project includes unit and integration tests.
+
+1.  **Run all tests:**
+    To run all tests in the project from the root directory:
+    \`\`\`bash
+    go test ./... -v
+    \`\`\`
+    The `-v` flag enables verbose output.
+
+2.  **Run tests for a specific package:**
+    For example, to run tests only for the `storage` package:
+    \`\`\`bash
+    go test ./storage -v -count=1
+    \`\`\`
+    Or for the `handlers` package:
+    \`\`\`bash
+    go test ./handlers -v -count=1
+    \`\`\`
+    The `-count=1` flag disables test caching, which can be useful to ensure tests run fresh each time.
+
+3.  **Test Coverage (Optional):**
+    To generate a test coverage report:
+    \`\`\`bash
+    go test ./... -coverprofile=coverage.out
+    go tool cover -html=coverage.out
+    \`\`\`
+    This will open an HTML page in your browser showing code coverage.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to open an issue or submit a pull request.
