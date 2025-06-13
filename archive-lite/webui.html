@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Archive-Lite Web UI</title>
+    <style>
+      /* modern-css-reset の内容をインライン展開 */
+      html,
+      body,
+      div,
+      span,
+      applet,
+      object,
+      iframe,
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6,
+      p,
+      blockquote,
+      pre,
+      a,
+      abbr,
+      acronym,
+      address,
+      big,
+      cite,
+      code,
+      del,
+      dfn,
+      em,
+      ins,
+      kbd,
+      q,
+      s,
+      samp,
+      small,
+      strike,
+      strong,
+      sub,
+      sup,
+      tt,
+      var,
+      b,
+      u,
+      i,
+      center,
+      dl,
+      dt,
+      dd,
+      ol,
+      ul,
+      li,
+      fieldset,
+      form,
+      label,
+      legend,
+      table,
+      caption,
+      tbody,
+      tfoot,
+      thead,
+      tr,
+      th,
+      td,
+      article,
+      aside,
+      canvas,
+      details,
+      embed,
+      figure,
+      figcaption,
+      footer,
+      header,
+      hgroup,
+      menu,
+      nav,
+      output,
+      ruby,
+      section,
+      summary,
+      time,
+      mark,
+      audio,
+      video {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        font-size: 100%;
+        font: inherit;
+        vertical-align: baseline;
+        box-sizing: border-box;
+      }
+      article,
+      aside,
+      details,
+      figcaption,
+      figure,
+      footer,
+      header,
+      hgroup,
+      menu,
+      nav,
+      section {
+        display: block;
+      }
+      body {
+        line-height: 1;
+      }
+      ol,
+      ul {
+        list-style: none;
+      }
+      blockquote,
+      q {
+        quotes: none;
+      }
+      blockquote:before,
+      blockquote:after,
+      q:before,
+      q:after {
+        content: "";
+        content: none;
+      }
+      table {
+        border-collapse: collapse;
+        border-spacing: 0;
+      }
+      body {
+        font-family: "Segoe UI", "Meiryo", sans-serif;
+        background: #f7f7f7;
+        margin: 0;
+      }
+      .container {
+        max-width: 700px;
+        margin: 40px auto;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px #0001;
+        padding: 32px;
+      }
+      h1 {
+        font-size: 2rem;
+        margin-bottom: 1.5rem;
+        color: #149274;
+      }
+      form {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 2rem;
+      }
+      input[type="url"] {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 1rem;
+      }
+      button {
+        background: #149274;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        padding: 10px 24px;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #0e6e56;
+      }
+      .archive-list {
+        margin-top: 2rem;
+      }
+      .archive-item {
+        background: #f3f9f7;
+        border-radius: 6px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 3px #0001;
+      }
+      .archive-item h2 {
+        font-size: 1.1rem;
+        margin: 0 0 8px 0;
+      }
+      .archive-item a {
+        color: #149274;
+        text-decoration: underline;
+      }
+     
+      .meta {
+        color: #888;
+        font-size: 0.9em;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Archive-Lite Web UI</h1>
+      <form id="archive-form">
+        <input type="url" id="url-input" placeholder="アーカイブしたいURLを入力" required />
+        <button type="submit">アーカイブ</button>
+      </form>
+      <div class="archive-list" id="archive-list">
+        <div>読み込み中...</div>
+      </div>
+    </div>
+    <script>
+      async function fetchArchives() {
+        let data = [];
+        try {
+          const res = await fetch("/api/archive");
+          if (!res.ok) throw new Error("APIエラー: " + res.status);
+          data = await res.json();
+        } catch (e) {
+          const list = document.getElementById("archive-list");
+          list.innerHTML = `<div style='color:red;'>APIエラー: ${e.message}</div>`;
+          return;
+        }
+        const list = document.getElementById("archive-list");
+        if (!data.length) {
+          list.innerHTML = "<div>まだアーカイブはありません。</div>";
+          return;
+        }
+        list.innerHTML = "";
+        for (const entry of data.reverse()) {
+          const item = document.createElement("div");
+          item.className = "archive-item";
+          item.innerHTML = `
+          <h2><a href="${entry.URL}" target="_blank">${entry.URL}</a></h2>
+          <div class="meta">ID: ${entry.ID} | 登録: ${new Date(entry.CreatedAt).toLocaleString("ja-JP")}</div>
+          <div><a href="/${entry.StoragePath}" target="_blank">HTMLを表示</a></div>
+        `;
+          list.appendChild(item);
+        }
+      }
+      document.getElementById("archive-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const url = document.getElementById("url-input").value;
+        const btn = e.target.querySelector("button");
+        btn.disabled = true;
+        btn.textContent = "送信中...";
+        try {
+          const res = await fetch("/api/archive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+          });
+          if (!res.ok) {
+            let msg = "登録失敗";
+            try {
+              msg = (await res.json()).error || msg;
+            } catch {}
+            throw new Error(msg);
+          }
+          document.getElementById("url-input").value = "";
+          await fetchArchives();
+        } catch (err) {
+          alert("アーカイブに失敗しました: " + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "アーカイブ";
+        }
+      });
+      fetchArchives();
+    </script>
+  </body>
+</html>

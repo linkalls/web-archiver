@@ -29,6 +29,10 @@ func main() {
 	// Middleware
 	app.Use(logger.New()) // Add basic request logging
 
+	// 静的ファイル配信: WebUIとアーカイブデータ
+	app.Static("/webui.html", "./webui.html")
+	app.Static("/data", "./data")
+
 	// Setup Routes
 	handlers.SetupRoutes(app) // Configure API routes
 

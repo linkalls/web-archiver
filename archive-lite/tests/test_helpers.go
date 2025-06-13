@@ -2,11 +2,11 @@ package tests
 
 import (
 	"archive-lite/models"
+	"fmt" // Added for EnsureTestStorageDirs error formatting
 	"log"
 	"os"
-	"sync"
-	"fmt" // Added for EnsureTestStorageDirs error formatting
 	"path/filepath" // Added for EnsureTestStorageDirs
+	"sync"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/driver/sqlite"
@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	testDB   *gorm.DB
-	onceDB   sync.Once
+	testDB    *gorm.DB
+	onceDB    sync.Once
 	dbInitErr error
 )
 
@@ -88,21 +88,22 @@ func ClearArchiveEntries(db *gorm.DB) error {
 }
 
 // EnsureTestStorageDirs creates necessary storage directories for tests.
-func EnsureTestStorageDirs() (dataDir string, rawDir string, screenshotsDir string, cleanup func(), err error) {
+func EnsureTestStorageDirs() (dataDir string, rawDir string, assetsDir string, screenshotsDir string, cleanup func(), err error) {
 	tempDir, err := os.MkdirTemp("", "archive_lite_test_*")
 	if err != nil {
-		return "", "", "", nil, fmt.Errorf("failed to create temp dir for tests: %w", err)
+		return "", "", "", "", nil, fmt.Errorf("failed to create temp dir for tests: %w", err)
 	}
 
 	testDataDir := filepath.Join(tempDir, "data")
 	testRawHTMLDir := filepath.Join(testDataDir, "raw")
+	testAssetsDir := filepath.Join(testDataDir, "assets")
 	testScreenshotsDir := filepath.Join(testDataDir, "screenshots")
 
-	dirs := []string{testRawHTMLDir, testScreenshotsDir}
+	dirs := []string{testRawHTMLDir, testAssetsDir, testScreenshotsDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			os.RemoveAll(tempDir) // Cleanup on error
-			return "", "", "", nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
+			return "", "", "", "", nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
@@ -111,5 +112,5 @@ func EnsureTestStorageDirs() (dataDir string, rawDir string, screenshotsDir stri
 		log.Println("Test storage directories cleaned up.")
 	}
 
-	return testDataDir, testRawHTMLDir, testScreenshotsDir, cleanupFunc, nil
+	return testDataDir, testRawHTMLDir, testAssetsDir, testScreenshotsDir, cleanupFunc, nil
 }
