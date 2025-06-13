@@ -5,10 +5,11 @@ Archive-Lite is a lightweight, self-hosted web archiving solution built with Go.
 ## Features
 
 - Archive web pages (raw HTML).
-- API to add, list, and retrieve archived content.
-- Dockerized for easy deployment.
+- Capture screenshots of archived pages (JPEG format).
+- API to add, list, and retrieve archived content and screenshots.
+- Dockerized for easy deployment (includes Google Chrome for screenshots).
 - Uses SQLite for metadata storage.
-- (Planned) Support for Single Page Application (SPA) rendering via headless Chrome.
+- Support for Single Page Application (SPA) compatible screenshotting via headless Chrome.
 
 ## Technologies Used
 
@@ -16,15 +17,20 @@ Archive-Lite is a lightweight, self-hosted web archiving solution built with Go.
 - **Fiber v2**: Web framework.
 - **GORM**: ORM for database interaction.
 - **SQLite**: Database for storing archive metadata.
-- **Chromedp**: (Integrated for future use) Go library for driving browsers via the Chrome DevTools Protocol, intended for SPA rendering.
+- **Chromedp**: Go library for driving browsers via the Chrome DevTools Protocol, used for screenshot capture.
 - **Docker**: For containerization.
 
 ## Configuration
 
 - **`ARCHIVE_DB_PATH`**: Environment variable to specify the path for the SQLite database file. Defaults to `archive.db` in the application's working directory.
+- **`CHROMEDP_TIMEOUT_SECONDS`**: Timeout in seconds for `chromedp` page loading and screenshot operations. Defaults to `20`.
+- **`SCREENSHOT_QUALITY`**: Quality of the JPEG screenshot (1-100). Defaults to `85`.
+- **`CHROME_BIN_PATH`**: Optional path to the Chrome/Chromium executable if it's not in the system PATH (used by `chromedp`).
+- **`CHROMEDP_EXTRA_FLAGS`**: Optional comma-separated list of additional flags to pass to the Chrome/Chromium process started by `chromedp` (e.g., `"--flag1,--flag2"`).
+
 - **Data Directories**:
     - `data/raw/`: Stores the raw HTML content of archived pages.
-    - `data/screenshots/`: Intended for storing screenshots of archived pages (feature in development).
+    - `data/screenshots/`: Stores screenshots of archived pages (JPEG format).
     These directories are created automatically by the application at startup if they don't exist.
 
 ## Getting Started
@@ -32,7 +38,7 @@ Archive-Lite is a lightweight, self-hosted web archiving solution built with Go.
 ### Prerequisites
 
 - Go (version 1.21 or higher recommended)
-- Docker (for containerized deployment)
+- Docker (for containerized deployment, including Chrome for screenshots)
 - Git
 
 ### Local Development
@@ -49,14 +55,18 @@ Archive-Lite is a lightweight, self-hosted web archiving solution built with Go.
     ```
 
 3.  **Run the application:**
+    (Ensure Chrome or Chromium is installed and in your PATH if you want screenshots to be captured locally).
     ```bash
-    # Optional: Set the database path
+    # Optional: Set environment variables
     # export ARCHIVE_DB_PATH=./my-archive-data/archive.sqlite3
+    # export CHROMEDP_TIMEOUT_SECONDS=30
     ./archive-lite
     ```
     The server will start on port `3000` by default.
 
 ### Docker Deployment
+
+The Docker image is now based on `debian:bullseye-slim` and includes Google Chrome Stable to support screenshot functionality. This makes the image potentially larger than a minimal Alpine build but is necessary for `chromedp`. Ensure your Docker host has sufficient resources.
 
 1.  **Build the Docker image:**
     ```bash
@@ -65,11 +75,20 @@ Archive-Lite is a lightweight, self-hosted web archiving solution built with Go.
 
 2.  **Run the Docker container:**
     ```bash
-    docker run -d -p 3000:3000 --name archive-lite-app       -v $(pwd)/data:/app/data       # Optional: Specify a custom database path within the mounted volume
-      # -e ARCHIVE_DB_PATH=/app/data/archive.db       archive-lite
+    docker run -d -p 3000:3000 --name archive-lite-app \
+      -v $(pwd)/data:/app/data \
+      # Optional: Pass environment variables for configuration
+      # -e ARCHIVE_DB_PATH=/app/data/archive.db \
+      # -e CHROMEDP_TIMEOUT_SECONDS=30 \
+      # -e SCREENSHOT_QUALITY=90 \
+      # To use host's Chrome in Docker (advanced, typically not needed with Chrome in image):
+      # -e CHROME_BIN_PATH=/path/to/chrome \
+      # For additional Chrome flags:
+      # -e CHROMEDP_EXTRA_FLAGS="--disable-features=site-per-process,--some-other-flag" \
+      archive-lite
     ```
     - This command maps port `3000` of the container to port `3000` on the host.
-    - It mounts a local directory named `data` (relative to your current path) into `/app/data` inside the container. This ensures that your archived content and the SQLite database (if `ARCHIVE_DB_PATH` points within `/app/data`) persist across container restarts.
+    - It mounts a local directory named `data` (relative to your current path) into `/app/data` inside the container. This ensures that your archived content (HTML, screenshots) and the SQLite database (if `ARCHIVE_DB_PATH` points within `/app/data`) persist across container restarts.
     - If you use the `-e ARCHIVE_DB_PATH=/app/data/archive.db` option, the SQLite database file will be stored in your local `data` directory. Otherwise, it defaults to `/app/archive.db` inside the container (which would be lost if the container is removed without a volume for `/app`).
 
 ## API Endpoints
@@ -94,7 +113,7 @@ All API endpoints are prefixed with `/api/archive`.
           "URL": "https://example.com",
           "Title": "", // Title might be empty initially
           "StoragePath": "data/raw/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.html",
-          "ScreenshotPath": "data/screenshots/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.png",
+          "ScreenshotPath": "data/screenshots/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.jpg", // Note .jpg extension
           "ArchivedAt": "2023-10-27T10:00:00Z"
         }
         ```
@@ -123,44 +142,47 @@ All API endpoints are prefixed with `/api/archive`.
 
 -   **`GET /api/archive/:id/screenshot`**: Retrieve a screenshot for an archive.
     -   `:id` is the numerical ID of the archive entry.
-    -   **Success Response (200 OK):** Returns the PNG image (`image/png`) if available.
+    -   **Success Response (200 OK):** Returns the JPEG image (`image/jpeg`) if available.
     -   **Error Responses:** `400 Bad Request`, `404 Not Found` (if screenshot doesn't exist or feature is not fully implemented).
-        Currently, this endpoint will likely return a 404 as screenshot capture is a placeholder.
+        This endpoint serves the captured screenshot. If screenshot capture failed for a specific entry (e.g., due to page load errors or Chrome issues), this endpoint will return a 404 for that entry.
 
 ## SPA (Single Page Application) Support
 
--   The `chromedp` library has been included in the project dependencies, and basic file path generation for screenshots is in place.
--   However, the actual rendering of SPAs and capturing of screenshots using `chromedp` is **not yet implemented** in the `storage.CaptureSPA()` function. This function currently acts as a placeholder.
--   Full SPA support is a planned enhancement. When implemented, the `Dockerfile` will also need to be updated to include a headless Chrome/Chromium instance in both the build and runtime stages.
+-   Screenshot capture using `chromedp` is implemented, which navigates to the page, waits for basic readiness (`body` tag and a short delay), and then takes a full-page screenshot. This approach should capture the initial state of many SPAs.
+-   The system does not currently perform deep SPA rendering (e.g., scrolling to trigger lazy-loaded content, interacting with elements before capture, or extracting fully rendered HTML after all JavaScript execution).
+-   The `Dockerfile` now includes Google Chrome, enabling this screenshot functionality within the container.
+-   Further enhancements for more complex SPA interactions and full HTML rendering from SPAs are future considerations.
 
 ## Running Tests
+
+Note: Tests for screenshot capture (`TestCaptureSPA_ActualCapture` in `storage_test.go` and parts of `TestGetArchiveScreenshotAPI_Integration` in `handlers_test.go`) depend on a functional Chrome/Chromium environment. You can skip these specific tests by setting the environment variable `CHROME_TESTS_DISABLED=true` before running tests (e.g., `CHROME_TESTS_DISABLED=true go test ./...`). If Chrome is not found or encounters issues like timeouts, these tests are designed to skip gracefully or log the issue, allowing other tests to pass.
 
 This project includes unit and integration tests.
 
 1.  **Run all tests:**
     To run all tests in the project from the root directory:
-    \`\`\`bash
+    ```bash
     go test ./... -v
-    \`\`\`
+    ```
     The `-v` flag enables verbose output.
 
 2.  **Run tests for a specific package:**
     For example, to run tests only for the `storage` package:
-    \`\`\`bash
+    ```bash
     go test ./storage -v -count=1
-    \`\`\`
+    ```
     Or for the `handlers` package:
-    \`\`\`bash
+    ```bash
     go test ./handlers -v -count=1
-    \`\`\`
+    ```
     The `-count=1` flag disables test caching, which can be useful to ensure tests run fresh each time.
 
 3.  **Test Coverage (Optional):**
     To generate a test coverage report:
-    \`\`\`bash
+    ```bash
     go test ./... -coverprofile=coverage.out
     go tool cover -html=coverage.out
-    \`\`\`
+    ```
     This will open an HTML page in your browser showing code coverage.
 
 ## Contributing
