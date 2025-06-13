@@ -6,7 +6,6 @@ import (
 	"archive-lite/storage"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -55,19 +54,18 @@ func ListArchives(c *fiber.Ctx) error {
 
 // GetArchiveDetails handles the request to get details for a specific archive entry
 func GetArchiveDetails(c *fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := strconv.ParseUint(idParam, 10, 32)
-	if err != nil {
+	id := c.Params("id")
+	if id == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid archive ID format",
+			"error": "Archive ID cannot be empty",
 		})
 	}
 
 	var entry models.ArchiveEntry
-	result := database.DB.First(&entry, uint(id))
+	result := database.DB.Where("id = ?", id).First(&entry)
 	if result.Error != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Archive entry with ID %d not found: %s", id, result.Error.Error()),
+			"error": fmt.Sprintf("Archive entry with ID %s not found: %s", id, result.Error.Error()),
 		})
 	}
 	return c.JSON(entry)
@@ -75,32 +73,31 @@ func GetArchiveDetails(c *fiber.Ctx) error {
 
 // GetArchiveContent handles the request to retrieve the stored HTML content for an archive
 func GetArchiveContent(c *fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := strconv.ParseUint(idParam, 10, 32)
-	if err != nil {
+	id := c.Params("id")
+	if id == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid archive ID format",
+			"error": "Archive ID cannot be empty",
 		})
 	}
 
 	var entry models.ArchiveEntry
-	result := database.DB.First(&entry, uint(id))
+	result := database.DB.Where("id = ?", id).First(&entry)
 	if result.Error != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Archive entry with ID %d not found: %s", id, result.Error.Error()),
+			"error": fmt.Sprintf("Archive entry with ID %s not found: %s", id, result.Error.Error()),
 		})
 	}
 
 	if entry.StoragePath == "" {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Storage path not found for archive ID %d", id),
+			"error": fmt.Sprintf("Storage path not found for archive ID %s", id),
 		})
 	}
 
 	// Check if file exists
 	if _, err := os.Stat(entry.StoragePath); os.IsNotExist(err) {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Archived content file not found at %s for ID %d", entry.StoragePath, id),
+			"error": fmt.Sprintf("Archived content file not found at %s for ID %s", entry.StoragePath, id),
 		})
 	}
 
@@ -112,33 +109,32 @@ func GetArchiveContent(c *fiber.Ctx) error {
 // GetArchiveScreenshot handles the request to retrieve a screenshot for an archive
 // This is a placeholder for now, as screenshot functionality is not yet implemented.
 func GetArchiveScreenshot(c *fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := strconv.ParseUint(idParam, 10, 32)
-	if err != nil {
+	id := c.Params("id")
+	if id == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Invalid archive ID format",
+			"error": "Archive ID cannot be empty",
 		})
 	}
 
 	var entry models.ArchiveEntry
-	result := database.DB.First(&entry, uint(id))
+	result := database.DB.Where("id = ?", id).First(&entry)
 	if result.Error != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Archive entry with ID %d not found: %s", id, result.Error.Error()),
+			"error": fmt.Sprintf("Archive entry with ID %s not found: %s", id, result.Error.Error()),
 		})
 	}
 
 	// Check if screenshot file exists
-	if entry.ScreenshotPath == "" || os.IsNotExist(err) {
+	if entry.ScreenshotPath == "" {
 		// If SPA/screenshot is not yet implemented, or file doesn't exist
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": fmt.Sprintf("Screenshot not available for archive ID %d. This feature might still be under development or the screenshot was not captured.", id),
+			"message": fmt.Sprintf("Screenshot not available for archive ID %s. This feature might still be under development or the screenshot was not captured.", id),
 		})
 	}
 
-    if _, err := os.Stat(entry.ScreenshotPath); os.IsNotExist(err) {
+	if _, err := os.Stat(entry.ScreenshotPath); os.IsNotExist(err) {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": fmt.Sprintf("Screenshot file not found at %s for ID %d. It might not have been captured.", entry.ScreenshotPath, id),
+			"error": fmt.Sprintf("Screenshot file not found at %s for ID %s. It might not have been captured.", entry.ScreenshotPath, id),
 		})
 	}
 

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,8 +24,9 @@ var (
 	rawHTMLDir      = "data/raw"
 	assetsDir       = "data/assets"
 	lastRequestTime time.Time
-	requestDelay    = 2 * time.Second // Delay between requests to avoid bot detection
+	requestDelay    = 500 * time.Millisecond // Reduced delay for faster parallel downloads
 	httpClient      *http.Client
+	requestMutex    sync.Mutex // Mutex to protect lastRequestTime
 )
 
 // init initializes the HTTP client with cookie support
@@ -63,6 +65,9 @@ func EnsureStorageDirs() error {
 
 // waitBetweenRequests implements a simple rate limiting to avoid bot detection
 func waitBetweenRequests() {
+	requestMutex.Lock()
+	defer requestMutex.Unlock()
+
 	if !lastRequestTime.IsZero() {
 		elapsed := time.Since(lastRequestTime)
 		if elapsed < requestDelay {
@@ -410,40 +415,22 @@ func ArchiveURL(db *gorm.DB, urlToArchive string) (*models.ArchiveEntry, error) 
 
 	// Generate unique filename
 	entryUUID := uuid.New().String()
-
 	// Extract and save assets using the final URL as base
 	assets, err := extractAssetsFromHTML(htmlContent, finalURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract assets from HTML for '%s': %w", urlToArchive, err)
 	}
-	// Save assets
+
+	// Download assets in parallel (using 5 workers for good balance between speed and server load)
 	fmt.Printf("Found %d assets to download\n", len(assets))
-	for i, assetURL := range assets {
-		fmt.Printf("Downloading asset %d/%d: %s\n", i+1, len(assets), assetURL)
-
-		assetContent, err := FetchAsset(assetURL)
-		if err != nil {
-			// Log error but continue with other assets
-			fmt.Printf("Warning: failed to fetch asset '%s': %v\n", assetURL, err)
-			continue
+	if len(assets) > 0 {
+		maxWorkers := 5
+		if len(assets) < maxWorkers {
+			maxWorkers = len(assets)
 		}
-
-		// Validate asset content
-		if !validateAssetContent(assetContent, assetURL) {
-			fmt.Printf("Warning: invalid asset content for '%s', skipping\n", assetURL)
-			continue
-		}
-
-		assetFileName := generateAssetFileName(assetURL, entryUUID)
-		assetFilePath := filepath.Join(assetsDir, assetFileName)
-
-		// Ensure the asset file is written in binary mode
-		if err := os.WriteFile(assetFilePath, assetContent, 0644); err != nil {
-			fmt.Printf("Warning: failed to save asset '%s' to '%s': %v\n", assetURL, assetFilePath, err)
-			continue
-		}
-
-		fmt.Printf("Successfully saved asset: %s (%d bytes)\n", assetFileName, len(assetContent))
+		fmt.Printf("Starting parallel download with %d workers...\n", maxWorkers)
+		downloadedAssets := downloadAssetsParallel(assets, entryUUID, maxWorkers)
+		fmt.Printf("Download completed. %d assets downloaded successfully.\n", len(downloadedAssets))
 	}
 	// Modify HTML to use local asset paths (use finalURL for proper resolution)
 	modifiedHTML, err := modifyHTMLPaths(htmlContent, entryUUID, finalURL)
@@ -458,11 +445,11 @@ func ArchiveURL(db *gorm.DB, urlToArchive string) (*models.ArchiveEntry, error) 
 	if err := os.WriteFile(htmlFilePath, []byte(modifiedHTML), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write HTML to '%s': %w", htmlFilePath, err)
 	}
-
 	// Create archive entry in database
 	// Store the original URL for reference, but the content comes from the final URL
 	archiveEntry := models.ArchiveEntry{
-		URL:         finalURL, // Store the resolved URL as the primary URL
+		ID:          entryUUID, // Use the same UUID for both filename and database ID
+		URL:         finalURL,  // Store the resolved URL as the primary URL
 		Title:       "",
 		StoragePath: htmlFilePath,
 		ArchivedAt:  time.Now(),
@@ -544,4 +531,86 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// AssetDownloadResult represents the result of downloading an asset
+type AssetDownloadResult struct {
+	URL      string
+	FileName string
+	Content  []byte
+	Error    error
+}
+
+// downloadAssetsParallel downloads assets in parallel using worker goroutines
+func downloadAssetsParallel(assets []string, entryUUID string, maxWorkers int) map[string]string {
+	if len(assets) == 0 {
+		return make(map[string]string)
+	}
+
+	// Create channels for work distribution
+	assetChan := make(chan string, len(assets))
+	resultChan := make(chan AssetDownloadResult, len(assets))
+
+	// Fill the asset channel
+	for _, assetURL := range assets {
+		assetChan <- assetURL
+	}
+	close(assetChan)
+
+	// Start worker goroutines
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for assetURL := range assetChan {
+				fmt.Printf("Worker %d downloading: %s\n", workerID, assetURL)
+
+				assetContent, err := FetchAsset(assetURL)
+				result := AssetDownloadResult{
+					URL:      assetURL,
+					FileName: generateAssetFileName(assetURL, entryUUID),
+					Content:  assetContent,
+					Error:    err,
+				}
+				resultChan <- result
+			}
+		}(i)
+	}
+
+	// Close result channel when all workers are done
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results and save files
+	downloadedAssets := make(map[string]string)
+	successCount := 0
+
+	for result := range resultChan {
+		if result.Error != nil {
+			fmt.Printf("Warning: failed to fetch asset '%s': %v\n", result.URL, result.Error)
+			continue
+		}
+
+		// Validate asset content
+		if !validateAssetContent(result.Content, result.URL) {
+			fmt.Printf("Warning: invalid asset content for '%s', skipping\n", result.URL)
+			continue
+		}
+
+		assetFilePath := filepath.Join(assetsDir, result.FileName)
+		if err := os.WriteFile(assetFilePath, result.Content, 0644); err != nil {
+			fmt.Printf("Warning: failed to save asset '%s' to '%s': %v\n", result.URL, assetFilePath, err)
+			continue
+		}
+
+		downloadedAssets[result.URL] = result.FileName
+		successCount++
+		fmt.Printf("Successfully saved asset: %s (%d bytes)\n", result.FileName, len(result.Content))
+	}
+
+	fmt.Printf("Parallel download completed: %d/%d assets downloaded successfully\n", successCount, len(assets))
+	return downloadedAssets
 }
