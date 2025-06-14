@@ -1,2 +1,3 @@
-archive-lite/archive.db
-archive-lite/archive-lite.exe
+archive.db
+archive-lite.exe
+data/

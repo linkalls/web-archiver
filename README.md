@@ -2,12 +2,33 @@
 
 Archive-Lite is a lightweight, self-hosted web archiving solution built with Go. It aims to provide core archiving functionalities, an easy-to-use API, and simple Docker deployment. This project is inspired by ArchiveBox and is being developed with a focus on simplicity for potential integration with Pocket alternatives.
 
+## Quick Start with Docker
+
+### Linux/macOS:
 ```bash
 docker build -t archive-lite .
 docker run -d -p 3000:3000 --name archive-lite-app \
   -v "$(pwd)/data:/app/data" \
   archive-lite
-  ```
+```
+
+### Windows (PowerShell):
+```powershell
+docker build -t archive-lite .
+docker run -d -p 3000:3000 --name archive-lite-app `
+  -v "${PWD}/data:/app/data" `
+  archive-lite
+```
+
+### Windows (Command Prompt):
+```cmd
+docker build -t archive-lite .
+docker run -d -p 3000:3000 --name archive-lite-app ^
+  -v "%cd%/data:/app/data" ^
+  archive-lite
+```
+
+Once running, access the Web UI at: http://localhost:3000/webui.html
 
 ## Features
 
